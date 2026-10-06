@@ -171,6 +171,7 @@ h1, h2, h3, h4, h5, h6 {
   font-weight: 800;
   background: linear-gradient(135deg, var(--color-primary), var(--color-accent));
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
@@ -878,6 +879,7 @@ input:checked + .toggle-switch::after {
   margin: 0;
   background: linear-gradient(to right, var(--color-text-primary), var(--color-text-secondary));
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
