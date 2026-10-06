@@ -3,7 +3,7 @@ import { useSchool } from '../context/SchoolContext';
 import {
   Users, DollarSign, Calendar, Compass, Plus,
   CreditCard, Award, Eye, Settings, CheckCircle2,
-  Edit, Trash2
+  Edit, Trash2, BookOpen
 } from 'lucide-react';
 
 // Sub-component wrapper to let the Director view pages of other roles
@@ -14,6 +14,11 @@ import StudentDashboard from './StudentDashboard';
 export default function DirectorDashboard() {
   const {
     students,
+    invoices,
+    payments,
+    reconciliationRuns,
+    reconciliationDiscrepancies,
+    auditLogs,
     trips,
     closingDays,
     examScores,
@@ -21,6 +26,8 @@ export default function DirectorDashboard() {
     addClosingDay,
     addPayment,
     updateStudentFees,
+    runReconciliation,
+    resolveDiscrepancy,
     currentUser,
     admitStudent,
     admitTeacher,
@@ -29,7 +36,10 @@ export default function DirectorDashboard() {
     updateTrip,
     deleteTrip,
     updateClosingDay,
-    deleteClosingDay
+    deleteClosingDay,
+    updateStudentSubjects,
+    bulkImportData,
+    restoreDB
   } = useSchool();
 
   const [activeSubTab, setActiveSubTab] = useState('overview'); // overview, admissions, trips-closures, fees-payments, settings, view-pages
@@ -51,6 +61,149 @@ export default function DirectorDashboard() {
   const [settingsForm, setSettingsForm] = useState({ username: currentUser?.username || 'director', password: '', confirmPassword: '' });
   const [settingsSuccess, setSettingsSuccess] = useState(null);
   const [settingsError, setSettingsError] = useState(null);
+
+  // Subject Management States
+  const ALL_SCHOOL_SUBJECTS = ['Mathematics', 'Science', 'English Literature', 'History', 'Geography', 'Art', 'Music', 'Physical Education'];
+  const [subjectModalOpen, setSubjectModalOpen] = useState(false);
+  const [selectedStudentForSubjects, setSelectedStudentForSubjects] = useState(null);
+  const [selectedSubjects, setSelectedSubjects] = useState([]);
+
+  const openManageSubjectsModal = (student) => {
+    setSelectedStudentForSubjects(student);
+    setSelectedSubjects(student.subjects || ['Mathematics', 'Science', 'English Literature']);
+    setSubjectModalOpen(true);
+  };
+
+  const handleSaveSubjects = (e) => {
+    e.preventDefault();
+    if (selectedStudentForSubjects) {
+      updateStudentSubjects(selectedStudentForSubjects.id, selectedSubjects);
+      setSubjectModalOpen(false);
+      setSelectedStudentForSubjects(null);
+    }
+  };
+
+  // Data Migration States
+  const [migrationType, setMigrationType] = useState('students');
+  const [migrationSuccess, setMigrationSuccess] = useState(null);
+  const [migrationError, setMigrationError] = useState(null);
+  const [parsedData, setParsedData] = useState([]);
+  const [csvText, setCsvText] = useState('');
+
+  const handleCsvUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setMigrationError(null);
+    setMigrationSuccess(null);
+    setParsedData([]);
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target.result;
+      setCsvText(text);
+      try {
+        const parsed = parseCSV(text);
+        if (parsed.length === 0) {
+          setMigrationError("No valid rows found in the CSV file. Please check the template format.");
+        } else {
+          setParsedData(parsed);
+        }
+      } catch (err) {
+        setMigrationError("Failed to parse CSV file: " + err.message);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleApplyImport = () => {
+    if (parsedData.length === 0) return;
+    try {
+      bulkImportData(migrationType, parsedData);
+      setMigrationSuccess(`Successfully imported ${parsedData.length} records into the ${migrationType} database!`);
+      setParsedData([]);
+      setCsvText('');
+    } catch (err) {
+      setMigrationError("Failed to import data: " + err.message);
+    }
+  };
+
+  const parseCSV = (text) => {
+    const lines = text.split(/\r?\n/).map(line => line.trim()).filter(line => line.length > 0);
+    if (lines.length === 0) return [];
+    const delimiter = lines[0].includes(';') ? ';' : ',';
+    const headers = lines[0].split(delimiter).map(h => h.trim().replace(/^["']|["']$/g, ''));
+    const data = [];
+    for (let i = 1; i < lines.length; i++) {
+      const values = lines[i].split(new RegExp(`${delimiter}(?=(?:(?:[^"]*"){2})*[^"]*$)`)).map(v => v.trim().replace(/^["']|["']$/g, ''));
+      if (values.length <= headers.length) {
+        const obj = {};
+        headers.forEach((header, index) => {
+          obj[header] = values[index] || '';
+        });
+        data.push(obj);
+      }
+    }
+    return data;
+  };
+
+  const handleBackupExport = () => {
+    const localData = localStorage.getItem('springoasis_school_db');
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(localData || '{}');
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute("href", dataStr);
+    downloadAnchor.setAttribute("download", `springoasis_backup_${new Date().toISOString().split('T')[0]}.json`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+  };
+
+  const handleRestoreImport = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const restored = JSON.parse(event.target.result);
+        if (restored.students && restored.directors && restored.teachers) {
+          restoreDB(restored);
+          setMigrationSuccess("System database restored successfully from JSON backup!");
+        } else {
+          setMigrationError("Invalid backup file. The JSON must contain core system entities.");
+        }
+      } catch (err) {
+        setMigrationError("Failed to parse JSON file: " + err.message);
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const downloadTemplate = (type) => {
+    let headers = '';
+    let sample = '';
+    if (type === 'students') {
+      headers = 'id,name,class,feesDue,feesPaid,password,subjects';
+      sample = 'std-6,Emma Watson,Grade 10-A,5000,1000,password,Mathematics;Science\nstd-7,Harry Potter,Grade 11-B,5200,5200,password,Mathematics;English Literature;Art';
+    } else if (type === 'payments') {
+      headers = 'studentId,amount,date,method';
+      sample = 'std-1,2500,2026-06-01,Bank Transfer\nstd-2,1500,2026-06-15,Cash';
+    } else if (type === 'attendance') {
+      headers = 'studentId,studentName,class,date,status';
+      sample = 'std-1,Alice Johnson,Grade 10-A,2026-05-10,Present\nstd-2,Bob Smith,Grade 10-A,2026-05-10,Late';
+    } else if (type === 'scores') {
+      headers = 'studentId,studentName,subject,score,assessment,grader,date';
+      sample = 'std-1,Alice Johnson,Mathematics,95,Final Exam,Mrs. Sarah Connor,2026-06-10\nstd-2,Bob Smith,Science,82,Final Exam,Dr. Bruce Banner,2026-06-10';
+    }
+
+    const csvContent = "data:text/csv;charset=utf-8," + encodeURIComponent(headers + '\n' + sample);
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute("href", csvContent);
+    downloadAnchor.setAttribute("download", `template_${type}.csv`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+  };
 
   // Success states for toast cards
   const [tripSuccess, setTripSuccess] = useState(null);
@@ -457,6 +610,13 @@ export default function DirectorDashboard() {
             <Eye size={16} /> Simulate Role Pages
           </button>
           <button
+            id="dir-tab-migration"
+            className={`btn ${activeSubTab === 'migration' ? 'btn-primary' : 'btn-secondary'} btn-sm`}
+            onClick={() => setActiveSubTab('migration')}
+          >
+            <Settings size={16} /> Data Migration Hub
+          </button>
+          <button
             id="dir-tab-settings"
             className={`btn ${activeSubTab === 'settings' ? 'btn-primary' : 'btn-secondary'} btn-sm`}
             onClick={() => setActiveSubTab('settings')}
@@ -513,6 +673,7 @@ export default function DirectorDashboard() {
                       <th key={sub}>{sub}</th>
                     ))}
                     <th>GPA</th>
+                    <th className="text-center">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -549,6 +710,17 @@ export default function DirectorDashboard() {
                           <span className={`badge ${studentGPA === 'N/A' ? 'badge-warning' : Number(studentGPA) >= 3.0 ? 'badge-success' : 'badge-info'}`}>
                             {studentGPA === 'N/A' ? 'N/A' : `${studentGPA} GPA`}
                           </span>
+                        </td>
+                        <td className="text-center">
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-xs"
+                            onClick={() => openManageSubjectsModal(student)}
+                            style={{ padding: '4px 8px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px', border: '1px solid var(--color-border)' }}
+                          >
+                            <BookOpen size={12} />
+                            Subjects
+                          </button>
                         </td>
                       </tr>
                     );
@@ -1015,15 +1187,115 @@ export default function DirectorDashboard() {
         </section>
       )}
 
-      {/* FEES & PAYMENTS MANAGEMENT */}
+      {/* FEES & PAYMENTS & RECONCILIATION MANAGEMENT */}
       {activeSubTab === 'fees-payments' && (
         <section id="dir-section-fees" aria-labelledby="dir-fees-title">
           <h2 id="dir-fees-title" className="visually-hidden">Fees, Payments and Financial Panel</h2>
 
+          {/* Key Financial Metrics */}
+          <div className="grid-cols-4 mb-md">
+            <div className="glass-card">
+              <span className="text-sm text-muted">Total Term Fees Billed</span>
+              <div style={{ fontSize: '1.6rem', fontWeight: '800', marginBlockStart: '4px' }}>
+                KES {students.reduce((sum, s) => sum + s.feesDue, 0).toLocaleString()}
+              </div>
+            </div>
+            <div className="glass-card">
+              <span className="text-sm text-muted">Verified Receipts Collected</span>
+              <div style={{ fontSize: '1.6rem', fontWeight: '800', color: 'var(--color-success)', marginBlockStart: '4px' }}>
+                KES {students.reduce((sum, s) => sum + s.feesPaid, 0).toLocaleString()}
+              </div>
+            </div>
+            <div className="glass-card">
+              <span className="text-sm text-muted">Outstanding Fee Balance</span>
+              <div style={{ fontSize: '1.6rem', fontWeight: '800', color: 'var(--color-error)', marginBlockStart: '4px' }}>
+                KES {students.reduce((sum, s) => sum + (s.feesDue - s.feesPaid), 0).toLocaleString()}
+              </div>
+            </div>
+            <div className="glass-card">
+              <span className="text-sm text-muted">Open Reconciliation Discrepancies</span>
+              <div style={{ fontSize: '1.6rem', fontWeight: '800', color: 'var(--color-warning)', marginBlockStart: '4px' }}>
+                {(reconciliationDiscrepancies || []).filter(d => d.status === 'OPEN').length} Unmatched
+              </div>
+            </div>
+          </div>
+
+          {/* 3-Way Automated Reconciliation Controls */}
+          <div className="glass-card mb-md flex-between" style={{ background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%)', border: '1px solid rgba(59, 130, 246, 0.3)' }}>
+            <div>
+              <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <CheckCircle2 color="var(--color-primary)" size={20} />
+                Automated 3-Way Financial Reconciliation Engine
+              </h3>
+              <p className="text-sm text-muted mt-xs">
+                Simultaneously matches Spring Oasis Database Ledgers against Safaricom M-Pesa Settlement Logs and Bank CSV Feeds.
+              </p>
+            </div>
+            <button 
+              className="btn btn-primary" 
+              onClick={() => runReconciliation()}
+              style={{ padding: '12px 20px', fontWeight: 'bold' }}
+            >
+              Run 3-Way Reconciliation Cron
+            </button>
+          </div>
+
+          {/* Open Reconciliation Discrepancies Card */}
+          {(reconciliationDiscrepancies || []).length > 0 && (
+            <div className="glass-card mb-md" style={{ borderLeft: '4px solid var(--color-warning)' }}>
+              <h3>Open Reconciliation Discrepancies ({reconciliationDiscrepancies.filter(d => d.status === 'OPEN').length})</h3>
+              <div className="table-wrapper mt-md">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Ref / Provider Tx</th>
+                      <th>Discrepancy Type</th>
+                      <th>Internal Amount</th>
+                      <th>Provider Amount</th>
+                      <th>Status</th>
+                      <th>Resolution Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reconciliationDiscrepancies.map((disc) => (
+                      <tr key={disc.id}>
+                        <td>
+                          <span className="font-mono text-xs font-bold">{disc.paymentReference || disc.providerTransactionId}</span>
+                        </td>
+                        <td>
+                          <span className="badge badge-warning">{disc.discrepancyType}</span>
+                        </td>
+                        <td>KES {disc.internalAmount.toLocaleString()}</td>
+                        <td className="font-bold text-success">KES {disc.providerAmount.toLocaleString()}</td>
+                        <td>
+                          <span className={`badge ${disc.status === 'RESOLVED' ? 'badge-success' : 'badge-error'}`}>
+                            {disc.status}
+                          </span>
+                        </td>
+                        <td>
+                          {disc.status === 'OPEN' ? (
+                            <button 
+                              className="btn btn-secondary btn-sm"
+                              onClick={() => resolveDiscrepancy(disc.id, 'Verified manually against Safaricom Settlement Statement.')}
+                            >
+                              Resolve Discrepancy
+                            </button>
+                          ) : (
+                            <span className="text-xs text-muted">{disc.resolutionNotes || 'Resolved'}</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
           <div className="grid-cols-2">
             {/* Record Student Payment */}
             <div className="glass-card">
-              <h3>Record Student Payment</h3>
+              <h3>Manual Fee Entry (Cash / Cheque / Bank Override)</h3>
               {paymentSuccess && (
                 <div className="glass-card mt-md" style={{
                   borderColor: 'var(--color-success)',
@@ -1032,13 +1304,10 @@ export default function DirectorDashboard() {
                   marginBottom: 'var(--spacing-md)'
                 }}>
                   <div className="flex-gap" style={{ color: 'var(--color-success)', fontWeight: 'bold' }}>
-                    <CheckCircle2 size={18} /> Receipt Acknowledged!
+                    <CheckCircle2 size={18} /> Manual Receipt Logged!
                   </div>
                   <p className="text-sm mt-xs" style={{ color: 'var(--color-text-primary)' }}>
-                    Successfully captured payment of <strong>KES {paymentSuccess.amount}</strong> for <strong>{paymentSuccess.studentName}</strong> via {paymentSuccess.method}.
-                  </p>
-                  <p className="text-xs text-muted mt-xs">
-                    Receipt ID: <strong>{paymentSuccess.receiptId}</strong> | Balance outstanding: <strong>KES {paymentSuccess.balanceRemaining}</strong> (Deducted from pending ledger automatically).
+                    Successfully recorded manual payment of <strong>KES {paymentSuccess.amount}</strong> for <strong>{paymentSuccess.studentName}</strong>.
                   </p>
                 </div>
               )}
@@ -1085,24 +1354,24 @@ export default function DirectorDashboard() {
                       value={paymentForm.method}
                       onChange={(e) => setPaymentForm({ ...paymentForm, method: e.target.value })}
                     >
+                      <option value="M-Pesa">M-Pesa Express</option>
                       <option value="Bank Transfer">Bank Transfer</option>
                       <option value="Credit Card">Credit Card</option>
-                      <option value="Cash">Cash</option>
-                      <option value="Cheque">Cheque</option>
-                      <option value="M-Pesa">M-Pesa</option>
+                      <option value="Cash">Cash / Office Receipt</option>
+                      <option value="Cheque">Bank Cheque</option>
                     </select>
                   </div>
                 </div>
 
                 <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>
-                  <CreditCard size={18} /> Log Payment Transaction
+                  <CreditCard size={18} /> Record Manual Payment
                 </button>
               </form>
             </div>
 
             {/* Set Student Tuition Fees */}
             <div className="glass-card">
-              <h3>Set Student Tuition Fees</h3>
+              <h3>Set Student Tuition Billing Schedule</h3>
               {feeSuccess && (
                 <div className="glass-card mt-md" style={{
                   borderColor: 'var(--color-info)',
@@ -1114,7 +1383,7 @@ export default function DirectorDashboard() {
                     <CheckCircle2 size={18} /> Billing Updated!
                   </div>
                   <p className="text-sm mt-xs" style={{ color: 'var(--color-text-primary)' }}>
-                    Annual tuition for <strong>{feeSuccess.studentName}</strong> has been adjusted to <strong>KES {feeSuccess.feesDue.toLocaleString()}</strong>.
+                    Annual tuition for <strong>{feeSuccess.studentName}</strong> set to <strong>KES {feeSuccess.feesDue.toLocaleString()}</strong>.
                   </p>
                 </div>
               )}
@@ -1138,13 +1407,13 @@ export default function DirectorDashboard() {
                 </div>
 
                 <div className="form-group">
-                  <label htmlFor="fee-amount">New Annual Fees Amount (KES) *</label>
+                  <label htmlFor="fee-amount">New Term Tuition Fee Amount (KES) *</label>
                   <input
                     type="number"
                     id="fee-amount"
                     min="0"
                     className="form-control"
-                    placeholder="e.g. 60000"
+                    placeholder="e.g. 50000"
                     required
                     value={feeForm.feesDue}
                     onChange={(e) => setFeeForm({ ...feeForm, feesDue: e.target.value })}
@@ -1152,61 +1421,48 @@ export default function DirectorDashboard() {
                 </div>
 
                 <button type="submit" className="btn btn-secondary" style={{ width: '100%', borderColor: 'var(--color-primary)' }}>
-                  <Settings size={18} /> Update Tuition Billing
+                  <Settings size={18} /> Update Tuition Schedule
                 </button>
               </form>
             </div>
           </div>
 
-          {/* Student Fees Ledger Overview */}
+          {/* Global Verified Payments Ledger & Audit Logs */}
           <div className="glass-card mt-lg">
-            <h4>Billing Ledger Summary</h4>
+            <h4>Global Financial Transaction Ledger & Audit Logs</h4>
             <div className="table-wrapper mt-md">
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th>Student</th>
-                    <th>Class</th>
-                    <th>Annual Fees</th>
-                    <th>Amount Paid</th>
-                    <th>Outstanding Due</th>
-                    <th>Payments Recorded</th>
+                    <th>Payment Ref</th>
+                    <th>Student Name</th>
+                    <th>M-Pesa / Bank Code</th>
+                    <th>Provider Channel</th>
+                    <th>Date & Time</th>
+                    <th>Audit Status</th>
+                    <th className="text-right">Amount (KES)</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {students.map((student) => {
-                    const balance = student.feesDue - student.feesPaid;
+                  {(payments || []).map((pay) => {
+                    const std = students.find(s => s.id === pay.studentId);
                     return (
-                      <tr key={student.id}>
-                        <td><span className="font-bold">{student.name}</span></td>
-                        <td>{student.class}</td>
-                        <td>KES {student.feesDue.toLocaleString()}</td>
-                        <td>
-                          <span style={{ color: 'var(--color-success)', fontWeight: '600' }}>
-                            KES {student.feesPaid.toLocaleString()}
-                          </span>
-                        </td>
-                        <td>
-                          <span className={`badge ${balance === 0 ? 'badge-success' : 'badge-error'}`}>
-                            {balance === 0 ? 'Fully Paid' : `KES ${balance.toLocaleString()}`}
-                          </span>
-                        </td>
-                        <td>
-                          {student.payments.length === 0 ? (
-                            <span className="text-muted text-xs">No payments</span>
-                          ) : (
-                            <ul style={{ listStyle: 'none', fontSize: '0.8rem', padding: 0 }}>
-                              {student.payments.map((p) => (
-                                <li key={p.id} className="text-muted">
-                                  KES {p.amount} on {p.date} ({p.method})
-                                </li>
-                              ))}
-                            </ul>
-                          )}
-                        </td>
+                      <tr key={pay.id}>
+                        <td><span className="font-bold text-xs">{pay.paymentReference}</span></td>
+                        <td>{std ? std.name : pay.studentId}</td>
+                        <td><span className="font-mono text-xs text-primary">{pay.providerTransactionId}</span></td>
+                        <td><span className="badge badge-info">{pay.provider}</span></td>
+                        <td className="text-xs">{pay.paidAt ? new Date(pay.paidAt).toLocaleString() : pay.createdAt}</td>
+                        <td><span className="badge badge-success">{pay.reconciliationStatus || 'MATCHED'}</span></td>
+                        <td className="text-right font-bold text-success">+KES {pay.amount.toLocaleString()}</td>
                       </tr>
                     );
                   })}
+                  {(payments || []).length === 0 && (
+                    <tr>
+                      <td colSpan="7" className="text-center text-muted">No transactions recorded in the global ledger.</td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -1493,6 +1749,156 @@ export default function DirectorDashboard() {
         </section>
       )}
 
+      {/* 6. DATA MIGRATION HUB */}
+      {activeSubTab === 'migration' && (
+        <section id="dir-section-migration" aria-labelledby="dir-migration-title">
+          <h2 id="dir-migration-title" className="visually-hidden">System Database Migration Hub</h2>
+
+          <div className="grid-cols-2">
+            {/* CSV Importer */}
+            <div className="glass-card">
+              <h3>Bulk CSV Historical Data Importer</h3>
+              <p className="text-sm text-muted mt-xs">
+                Upload historical data from manual logs. Select a category, download the template format, and load your spreadsheet data.
+              </p>
+
+              {migrationSuccess && (
+                <div className="badge badge-success mt-md" style={{ width: '100%', padding: '10px', justifyContent: 'center' }}>
+                  {migrationSuccess}
+                </div>
+              )}
+              {migrationError && (
+                <div className="badge badge-error mt-md" style={{ width: '100%', padding: '10px', justifyContent: 'center' }}>
+                  {migrationError}
+                </div>
+              )}
+
+              <div className="form-group mt-md">
+                <label htmlFor="mig-type">Select Import Type</label>
+                <select
+                  id="mig-type"
+                  className="form-control"
+                  value={migrationType}
+                  onChange={(e) => {
+                    setMigrationType(e.target.value);
+                    setParsedData([]);
+                    setMigrationError(null);
+                    setMigrationSuccess(null);
+                  }}
+                >
+                  <option value="students">Students Roster & Accounts</option>
+                  <option value="payments">Financial Fees Payments</option>
+                  <option value="attendance">Historical Student Attendance Registers</option>
+                  <option value="scores">Historical Academic Grades & Scores</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }} className="mb-md">
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => downloadTemplate(migrationType)}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                >
+                  Download CSV Template
+                </button>
+              </div>
+
+              <div className="form-group">
+                <label>Choose CSV File</label>
+                <input
+                  type="file"
+                  accept=".csv"
+                  className="form-control"
+                  onChange={handleCsvUpload}
+                  style={{ padding: '8px' }}
+                  key={migrationType}
+                />
+              </div>
+
+              {parsedData.length > 0 && (
+                <div className="mt-md">
+                  <div className="badge badge-info" style={{ width: '100%', padding: '8px', justifyContent: 'center', marginBottom: '10px' }}>
+                    Parsed {parsedData.length} records. Ready to import.
+                  </div>
+                  <div style={{ maxHeight: '150px', overflowY: 'auto', border: '1px solid var(--color-border)', borderRadius: '6px', padding: '10px', fontSize: '0.8rem', backgroundColor: 'rgba(0,0,0,0.1)' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
+                          {Object.keys(parsedData[0]).slice(0, 3).map(key => (
+                            <th key={key} style={{ textAlign: 'left', padding: '4px' }}>{key}</th>
+                          ))}
+                          {Object.keys(parsedData[0]).length > 3 && <th style={{ textAlign: 'left', padding: '4px' }}>...</th>}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {parsedData.slice(0, 5).map((row, idx) => (
+                          <tr key={idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                            {Object.values(row).slice(0, 3).map((val, vIdx) => (
+                              <td key={vIdx} style={{ padding: '4px' }}>{String(val)}</td>
+                            ))}
+                            {Object.keys(row).length > 3 && <td style={{ padding: '4px' }}>...</td>}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {parsedData.length > 5 && <div className="text-muted mt-xs" style={{ fontSize: '0.75rem', textAlign: 'center' }}>and {parsedData.length - 5} more rows...</div>}
+                  </div>
+
+                  <button
+                    type="button"
+                    className="btn btn-primary mt-md"
+                    style={{ width: '100%' }}
+                    onClick={handleApplyImport}
+                  >
+                    Confirm Bulk Data Import
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Full Backup/Restore */}
+            <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+              <div>
+                <h3>System Backup & Restoration</h3>
+                <p className="text-sm text-muted mt-xs">
+                  Create full snapshots of the local database configuration. Export the snapshot to save it off-system, or restore it to restore previous states.
+                </p>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }} className="mt-md">
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <strong>1. Export Backup</strong>
+                    <p className="text-xs text-muted">Downloads the entire active database state, including student records, inventories, and fee logs as a single `.json` file.</p>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={handleBackupExport}
+                      style={{ alignSelf: 'flex-start' }}
+                    >
+                      Export Database Snapshot
+                    </button>
+                  </div>
+
+                  <hr style={{ border: '0', borderTop: '1px solid var(--color-border)', margin: '10px 0' }} />
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <strong>2. Restore System Backup</strong>
+                    <p className="text-xs text-muted">Upload a previously exported `.json` snapshot file to replace all data. Warning: this replaces current local storage data.</p>
+                    <input
+                      type="file"
+                      accept=".json"
+                      className="form-control"
+                      onChange={handleRestoreImport}
+                      style={{ padding: '8px' }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* SIMULATE OTHER PAGES */}
       {activeSubTab === 'view-pages' && (
         <section id="dir-section-sim" aria-labelledby="dir-sim-title">
@@ -1567,13 +1973,51 @@ export default function DirectorDashboard() {
               {simulatedRole === 'employee' && (
                 <EmployeeDashboard overrideUser={{ id: 'emp-1', name: 'Chef Marcus Wright', role: 'Kitchen Supervisor' }} />
               )}
-
               {simulatedRole === 'student' && (
                 <StudentDashboard overrideStudentId={simulatedStudentId} />
               )}
             </div>
           </div>
         </section>
+      )}
+
+      {/* Manage Subjects Modal */}
+      {subjectModalOpen && selectedStudentForSubjects && (
+        <div className="modal-overlay" onClick={() => { setSubjectModalOpen(false); setSelectedStudentForSubjects(null); }}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '400px' }}>
+            <h3>Manage Enrolled Subjects</h3>
+            <p className="text-sm text-muted mb-md">
+              Update subjects for <strong>{selectedStudentForSubjects.name}</strong> ({selectedStudentForSubjects.class}).
+            </p>
+            <form onSubmit={handleSaveSubjects}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '300px', overflowY: 'auto' }} className="mb-md">
+                {ALL_SCHOOL_SUBJECTS.map((sub) => {
+                  const isChecked = selectedSubjects.includes(sub);
+                  return (
+                    <label key={sub} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}>
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedSubjects([...selectedSubjects, sub]);
+                          } else {
+                            setSelectedSubjects(selectedSubjects.filter((s) => s !== sub));
+                          }
+                        }}
+                      />
+                      <span>{sub}</span>
+                    </label>
+                  );
+                })}
+              </div>
+              <div className="modal-actions">
+                <button type="button" className="btn btn-secondary" onClick={() => { setSubjectModalOpen(false); setSelectedStudentForSubjects(null); }}>Cancel</button>
+                <button type="submit" className="btn btn-primary">Save Changes</button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );

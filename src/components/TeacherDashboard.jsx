@@ -12,7 +12,8 @@ export default function TeacherDashboard({ overrideUser }) {
     recordStudentAttendance,
     recordExamScore,
     admitStudent,
-    updateUserCredentials
+    updateUserCredentials,
+    updateStudentSubjects
   } = useSchool();
 
   // Current Teacher Profile
@@ -46,6 +47,27 @@ export default function TeacherDashboard({ overrideUser }) {
   const [settingsForm, setSettingsForm] = useState({ username: teacher.username || '', password: '', confirmPassword: '' });
   const [settingsSuccess, setSettingsSuccess] = useState(null);
   const [settingsError, setSettingsError] = useState(null);
+
+  // Subject Management States
+  const ALL_SCHOOL_SUBJECTS = ['Mathematics', 'Science', 'English Literature', 'History', 'Geography', 'Art', 'Music', 'Physical Education'];
+  const [subjectModalOpen, setSubjectModalOpen] = useState(false);
+  const [selectedStudentForSubjects, setSelectedStudentForSubjects] = useState(null);
+  const [selectedSubjects, setSelectedSubjects] = useState([]);
+
+  const openManageSubjectsModal = (student) => {
+    setSelectedStudentForSubjects(student);
+    setSelectedSubjects(student.subjects || ['Mathematics', 'Science', 'English Literature']);
+    setSubjectModalOpen(true);
+  };
+
+  const handleSaveSubjects = (e) => {
+    e.preventDefault();
+    if (selectedStudentForSubjects) {
+      updateStudentSubjects(selectedStudentForSubjects.id, selectedSubjects);
+      setSubjectModalOpen(false);
+      setSelectedStudentForSubjects(null);
+    }
+  };
 
   // Attendance states are derived dynamically during render, no useEffect needed.
 
@@ -196,7 +218,7 @@ export default function TeacherDashboard({ overrideUser }) {
             className={`btn ${activeSubTab === 'admission' ? 'btn-primary' : 'btn-secondary'} btn-sm`}
             onClick={() => setActiveSubTab('admission')}
           >
-            <Plus size={16} /> Enroll Student
+            <Plus size={16} /> Class & Enrollment
           </button>
           <button 
             id="tch-tab-settings"
@@ -517,73 +539,130 @@ export default function TeacherDashboard({ overrideUser }) {
       {/* 4. ENROLL STUDENT TAB */}
       {activeSubTab === 'admission' && (
         <section id="tch-section-admission" aria-labelledby="tch-admission-title">
-          <h3 id="tch-admission-title" className="visually-hidden">Enroll New Student</h3>
-          <div className="glass-card" style={{ maxWidth: '600px', margin: '0 auto' }}>
-            <h3>Enroll New Student (Class: {teacher.class})</h3>
-            <p className="text-sm text-muted mt-xs">Admit a new student directly into your class list.</p>
+          <h3 id="tch-admission-title" className="visually-hidden">Class Roster & Enrollment</h3>
+          
+          <div className="grid-cols-2">
+            {/* Student Roster & Subjects */}
+            <div className="glass-card">
+              <h3>Class Roster ({classStudents.length} Students)</h3>
+              <p className="text-sm text-muted mt-xs mb-md">Manage academic subjects for students in your class.</p>
+              
+              <div className="table-wrapper">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Student Name</th>
+                      <th>Enrolled Subjects</th>
+                      <th className="text-center">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {classStudents.map((s) => (
+                      <tr key={s.id}>
+                        <td>
+                          <span className="font-bold">{s.name}</span>
+                          <span className="text-xs text-muted" style={{ display: 'block' }}>ID: {s.id}</span>
+                        </td>
+                        <td>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                            {(s.subjects || ['Mathematics', 'Science', 'English Literature']).map((subj) => (
+                              <span key={subj} className="badge badge-info" style={{ fontSize: '0.7rem', padding: '2px 6px' }}>
+                                {subj}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="text-center">
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-xs"
+                            onClick={() => openManageSubjectsModal(s)}
+                            style={{ padding: '4px 8px', fontSize: '0.75rem', display: 'inline-flex', alignItems: 'center', gap: '4px', border: '1px solid var(--color-border)' }}
+                          >
+                            <Settings size={12} />
+                            Subjects
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {classStudents.length === 0 && (
+                      <tr>
+                        <td colSpan="3" className="text-center text-muted">No students enrolled in your class.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
 
-            {admissionSuccess && (
-              <div className="badge badge-success mt-md" style={{ width: '100%', padding: '10px', justifyContent: 'center' }}>
-                {admissionSuccess}
-              </div>
-            )}
-            {admissionError && (
-              <div className="badge badge-error mt-md" style={{ width: '100%', padding: '10px', justifyContent: 'center' }}>
-                {admissionError}
-              </div>
-            )}
+            {/* Enroll Student Form */}
+            <div className="glass-card">
+              <h3>Enroll New Student (Class: {teacher.class})</h3>
+              <p className="text-sm text-muted mt-xs">Admit a new student directly into your class list.</p>
 
-            <form onSubmit={handleAdmStudentSubmit} className="mt-md" id="teacher-admit-student-form">
-              <div className="form-group">
-                <label htmlFor="tch-adm-id">Admission Number *</label>
-                <input 
-                  type="text" 
-                  id="tch-adm-id" 
-                  className="form-control" 
-                  placeholder="e.g. std-6" 
-                  required
-                  value={admStudent.id}
-                  onChange={(e) => setAdmStudent({...admStudent, id: e.target.value})}
-                />
-              </div>
-              <div className="form-group">
-                <label htmlFor="tch-adm-name">Student Full Name *</label>
-                <input 
-                  type="text" 
-                  id="tch-adm-name" 
-                  className="form-control" 
-                  placeholder="e.g. Frank Miller" 
-                  required
-                  value={admStudent.name}
-                  onChange={(e) => setAdmStudent({...admStudent, name: e.target.value})}
-                />
-              </div>
-              <div className="form-group">
-                <label htmlFor="tch-adm-fees">Tuition Fees ($) *</label>
-                <input 
-                  type="number" 
-                  id="tch-adm-fees" 
-                  className="form-control" 
-                  required
-                  value={admStudent.feesDue}
-                  onChange={(e) => setAdmStudent({...admStudent, feesDue: e.target.value})}
-                />
-              </div>
-              <div className="form-group">
-                <label htmlFor="tch-adm-pass">Initial Password *</label>
-                <input 
-                  type="password" 
-                  id="tch-adm-pass" 
-                  className="form-control" 
-                  required
-                  value={admStudent.password}
-                  onChange={(e) => setAdmStudent({...admStudent, password: e.target.value})}
-                />
-              </div>
-              <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>
-                Enroll Student
-              </button>
-            </form>
+              {admissionSuccess && (
+                <div className="badge badge-success mt-md" style={{ width: '100%', padding: '10px', justifyContent: 'center' }}>
+                  {admissionSuccess}
+                </div>
+              )}
+              {admissionError && (
+                <div className="badge badge-error mt-md" style={{ width: '100%', padding: '10px', justifyContent: 'center' }}>
+                  {admissionError}
+                </div>
+              )}
+
+              <form onSubmit={handleAdmStudentSubmit} className="mt-md" id="teacher-admit-student-form">
+                <div className="form-group">
+                  <label htmlFor="tch-adm-id">Admission Number *</label>
+                  <input 
+                    type="text" 
+                    id="tch-adm-id" 
+                    className="form-control" 
+                    placeholder="e.g. std-6" 
+                    required
+                    value={admStudent.id}
+                    onChange={(e) => setAdmStudent({...admStudent, id: e.target.value})}
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="tch-adm-name">Student Full Name *</label>
+                  <input 
+                    type="text" 
+                    id="tch-adm-name" 
+                    className="form-control" 
+                    placeholder="e.g. Frank Miller" 
+                    required
+                    value={admStudent.name}
+                    onChange={(e) => setAdmStudent({...admStudent, name: e.target.value})}
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="tch-adm-fees">Tuition Fees ($) *</label>
+                  <input 
+                    type="number" 
+                    id="tch-adm-fees" 
+                    className="form-control" 
+                    required
+                    value={admStudent.feesDue}
+                    onChange={(e) => setAdmStudent({...admStudent, feesDue: e.target.value})}
+                  />
+                </div>
+                <div className="form-group">
+                  <label htmlFor="tch-adm-pass">Initial Password *</label>
+                  <input 
+                    type="password" 
+                    id="tch-adm-pass" 
+                    className="form-control" 
+                    required
+                    value={admStudent.password}
+                    onChange={(e) => setAdmStudent({...admStudent, password: e.target.value})}
+                  />
+                </div>
+                <button type="submit" className="btn btn-primary" style={{ width: '100%' }}>
+                  Enroll Student
+                </button>
+              </form>
+            </div>
           </div>
         </section>
       )}
@@ -649,6 +728,45 @@ export default function TeacherDashboard({ overrideUser }) {
             </form>
           </div>
         </section>
+      )}
+
+      {/* Manage Subjects Modal */}
+      {subjectModalOpen && selectedStudentForSubjects && (
+        <div className="modal-overlay" onClick={() => { setSubjectModalOpen(false); setSelectedStudentForSubjects(null); }}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '400px' }}>
+            <h3>Manage Enrolled Subjects</h3>
+            <p className="text-sm text-muted mb-md">
+              Update subjects for <strong>{selectedStudentForSubjects.name}</strong> ({selectedStudentForSubjects.class}).
+            </p>
+            <form onSubmit={handleSaveSubjects}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '300px', overflowY: 'auto' }} className="mb-md">
+                {ALL_SCHOOL_SUBJECTS.map((sub) => {
+                  const isChecked = selectedSubjects.includes(sub);
+                  return (
+                    <label key={sub} style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', userSelect: 'none' }}>
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedSubjects([...selectedSubjects, sub]);
+                          } else {
+                            setSelectedSubjects(selectedSubjects.filter((s) => s !== sub));
+                          }
+                        }}
+                      />
+                      <span>{sub}</span>
+                    </label>
+                  );
+                })}
+              </div>
+              <div className="modal-actions">
+                <button type="button" className="btn btn-secondary" onClick={() => { setSubjectModalOpen(false); setSelectedStudentForSubjects(null); }}>Cancel</button>
+                <button type="submit" className="btn btn-primary">Save Changes</button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );

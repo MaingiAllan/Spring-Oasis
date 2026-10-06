@@ -1,16 +1,19 @@
 import { useState } from 'react';
 import { useSchool } from '../context/SchoolContext';
-import { BookOpen, DollarSign, Calendar, Compass, Award, FileText, CheckCircle2, Settings } from 'lucide-react';
+import { BookOpen, DollarSign, Calendar, Compass, Award, FileText, CheckCircle2, Settings, ShieldCheck, Smartphone, Printer, X, Loader2 } from 'lucide-react';
 
 export default function StudentDashboard({ overrideStudentId }) {
   const {
     students,
+    invoices,
+    payments,
     homework,
     trips,
     closingDays,
     examScores,
     studentAttendance,
-    updateUserCredentials
+    updateUserCredentials,
+    addPayment
   } = useSchool();
 
   // Selected student
@@ -20,6 +23,14 @@ export default function StudentDashboard({ overrideStudentId }) {
 
   const [activeSubTab, setActiveSubTab] = useState('summary'); // summary, homework, trips, finance, settings
 
+  // Payment Modal & M-Pesa STK Push states
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [paymentPhone, setPaymentPhone] = useState('254712345678');
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [selectedMethod, setSelectedMethod] = useState('mpesa_express');
+  const [stkStatus, setStkStatus] = useState('IDLE'); // IDLE, PROMPTED, PROCESSING, SUCCESS
+  const [selectedReceipt, setSelectedReceipt] = useState(null);
+
   // Settings form states
   const [settingsForm, setSettingsForm] = useState({ password: '', confirmPassword: '' });
   const [settingsSuccess, setSettingsSuccess] = useState(null);
@@ -28,6 +39,44 @@ export default function StudentDashboard({ overrideStudentId }) {
   if (!student) {
     return <div className="empty-state">No student records found.</div>;
   }
+
+  // Get current student invoices & payment history
+  const studentInvoice = (invoices || []).find(inv => inv.studentId === student.id) || (invoices || [])[0];
+  const studentInvoiceItems = studentInvoice ? (studentInvoice.items || []) : [];
+  const studentPayments = (payments || []).filter(p => p.studentId === student.id);
+
+  const outstandingBalance = studentInvoice ? studentInvoice.balance : (student.feesDue - student.feesPaid);
+
+  const handleInitiatePayment = (e) => {
+    e.preventDefault();
+    const amountToPay = Number(paymentAmount) || outstandingBalance;
+    if (amountToPay <= 0) return;
+
+    setStkStatus('PROMPTED');
+
+    // Simulate Server-to-Server M-Pesa Callback after 2 seconds
+    setTimeout(() => {
+      setStkStatus('PROCESSING');
+      setTimeout(() => {
+        const paymentRef = `SO-PAY-2026-${Math.floor(100000 + Math.random() * 900000)}`;
+        const mpesaCode = `RKT${Math.floor(10000000 + Math.random() * 90000000)}`;
+
+        addPayment(student.id, amountToPay, selectedMethod, {
+          paymentReference: paymentRef,
+          providerTransactionId: mpesaCode,
+          phoneNumber: paymentPhone,
+          payerName: student.name
+        });
+
+        setStkStatus('SUCCESS');
+        setTimeout(() => {
+          setStkStatus('IDLE');
+          setShowPaymentModal(false);
+          setPaymentAmount('');
+        }, 1500);
+      }, 1500);
+    }, 2000);
+  };
 
   const handleSettingsSubmit = (e) => {
     e.preventDefault();
@@ -71,8 +120,6 @@ export default function StudentDashboard({ overrideStudentId }) {
 
   const totalPoints = studentScores.reduce((acc, s) => acc + getGradeAndPoints(s.score).points, 0);
   const gpa = studentScores.length > 0 ? (totalPoints / studentScores.length).toFixed(2) : 'N/A';
-
-  const outstandingBalance = student.feesDue - student.feesPaid;
 
   return (
     <div className="student-dashboard-root">
@@ -332,40 +379,119 @@ export default function StudentDashboard({ overrideStudentId }) {
         </section>
       )}
 
-      {/* 4. FINANCIAL LEDGER */}
+      {/* 4. FINANCIAL LEDGER & M-PESA PAYMENT SYSTEM */}
       {activeSubTab === 'finance' && (
         <section id="std-section-finance" aria-labelledby="std-finance-title">
           <h3 id="std-finance-title" className="visually-hidden">Financial Ledger and Billing Statement</h3>
           
           <div className="grid-cols-3 mb-md">
             <div className="glass-card">
-              <span className="text-sm text-muted">Total Annual Tuition</span>
-              <div style={{ fontSize: '2rem', fontWeight: '800', marginBlockStart: '5px' }}>
-                ${student.feesDue.toLocaleString()}
+              <span className="text-sm text-muted">Total Term Fees Billed</span>
+              <div style={{ fontSize: '1.8rem', fontWeight: '800', marginBlockStart: '5px' }}>
+                KES {(studentInvoice ? studentInvoice.totalAmount : student.feesDue).toLocaleString()}
               </div>
             </div>
             <div className="glass-card">
-              <span className="text-sm text-muted">Amount Paid To Date</span>
-              <div style={{ fontSize: '2rem', fontWeight: '800', color: 'var(--color-success)', marginBlockStart: '5px' }}>
-                ${student.feesPaid.toLocaleString()}
+              <span className="text-sm text-muted">Total Amount Paid To Date</span>
+              <div style={{ fontSize: '1.8rem', fontWeight: '800', color: 'var(--color-success)', marginBlockStart: '5px' }}>
+                KES {student.feesPaid.toLocaleString()}
               </div>
             </div>
             <div className="glass-card">
-              <span className="text-sm text-muted">Remaining Balance Due</span>
+              <span className="text-sm text-muted">Current Outstanding Dues</span>
               <div style={{ 
-                fontSize: '2rem', 
+                fontSize: '1.8rem', 
                 fontWeight: '800', 
                 color: outstandingBalance > 0 ? 'var(--color-error)' : 'var(--color-success)', 
                 marginBlockStart: '5px' 
               }}>
-                ${outstandingBalance.toLocaleString()}
+                KES {outstandingBalance.toLocaleString()}
               </div>
             </div>
           </div>
 
+          {/* Action Bar for Automated Payment */}
+          <div className="glass-card mb-md flex-between" style={{ background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(59, 130, 246, 0.1) 100%)', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
+            <div>
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                <CheckCircle2 color="var(--color-success)" size={20} />
+                Automated School Fee Payment Portal
+              </h3>
+              <p className="text-sm text-muted mt-xs">Direct M-Pesa STK Push, Bank Transfer & Instant Webhook Real-Time Reconciliation</p>
+            </div>
+            <button 
+              className="btn btn-primary" 
+              onClick={() => setShowPaymentModal(true)}
+              disabled={outstandingBalance <= 0}
+              style={{ padding: '12px 24px', fontWeight: 'bold' }}
+            >
+              <DollarSign size={18} /> {outstandingBalance > 0 ? 'Pay Outstanding Dues via M-Pesa' : 'Fees Fully Settled'}
+            </button>
+          </div>
+
+          <div className="grid-cols-2 mb-md">
+            {/* Term Invoice Itemized Breakdown */}
+            <div className="glass-card">
+              <h3>2026 Term 1 Itemized Fee Invoice</h3>
+              <p className="text-xs text-muted">Invoice Ref: <span className="font-bold">{studentInvoice ? studentInvoice.invoiceNumber : 'INV-2026-001'}</span> | Due: <span className="font-bold">{studentInvoice ? studentInvoice.dueDate : '2026-08-30'}</span></p>
+              
+              <div className="table-wrapper mt-md">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Fee Component</th>
+                      <th>Description</th>
+                      <th className="text-right">Amount (KES)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {studentInvoiceItems.map((item) => (
+                      <tr key={item.id}>
+                        <td><span className="badge badge-info">{item.feeType}</span></td>
+                        <td>{item.description}</td>
+                        <td className="text-right font-bold">KES {item.amount.toLocaleString()}</td>
+                      </tr>
+                    ))}
+                    {studentInvoiceItems.length === 0 && (
+                      <tr>
+                        <td colSpan="3" className="text-center text-muted">Standard Grade 10 Tuition Fee Schedule applied.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Financial State Machine Status */}
+            <div className="glass-card">
+              <h3>Settlement Status & Real-Time Ledger</h3>
+              <div className="mt-md p-md" style={{ borderRadius: '8px', background: 'rgba(255, 255, 255, 0.05)', border: '1px solid rgba(255, 255, 255, 0.1)' }}>
+                <div className="flex-between mb-sm">
+                  <span className="text-sm">Invoice Status:</span>
+                  <span className={`badge ${studentInvoice?.status === 'PAID' ? 'badge-success' : studentInvoice?.status === 'PARTIALLY_PAID' ? 'badge-warning' : 'badge-error'}`}>
+                    {studentInvoice ? studentInvoice.status : (outstandingBalance === 0 ? 'PAID' : 'PARTIALLY_PAID')}
+                  </span>
+                </div>
+                <div className="flex-between mb-sm">
+                  <span className="text-sm">Last Verified Payment:</span>
+                  <span className="text-sm font-bold">{studentPayments.length > 0 ? studentPayments[0].paidAt?.split('T')[0] : 'N/A'}</span>
+                </div>
+                <div className="flex-between mb-sm">
+                  <span className="text-sm">Reconciliation Audit:</span>
+                  <span className="badge badge-success">STK_PUSH_VERIFIED</span>
+                </div>
+                <div className="flex-between">
+                  <span className="text-sm">Currency Standard:</span>
+                  <span className="text-sm font-bold">KES (DECIMAL 19,4)</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Transaction Ledger Table */}
           <div className="glass-card">
             <div className="glass-card-header">
-              <h3>Receipt & Payment Transaction History</h3>
+              <h3>Verified Payment Ledger & Audit Trail</h3>
               <FileText size={18} className="text-muted" />
             </div>
             
@@ -373,26 +499,40 @@ export default function StudentDashboard({ overrideStudentId }) {
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th>Receipt Number</th>
-                    <th>Date Paid</th>
-                    <th>Payment Method</th>
+                    <th>Payment Ref</th>
+                    <th>Provider Tx ID</th>
+                    <th>Date & Time</th>
+                    <th>Method / Channel</th>
+                    <th>Reconciliation Status</th>
                     <th className="text-right">Amount Paid</th>
+                    <th className="text-center">Receipt</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {student.payments.map((payment) => (
-                    <tr key={payment.id}>
-                      <td><span className="font-bold text-xs">{payment.id}</span></td>
-                      <td>{payment.date}</td>
-                      <td>{payment.method}</td>
-                      <td className="text-right" style={{ fontWeight: '600', color: 'var(--color-success)' }}>
-                        +${payment.amount.toLocaleString()}
+                  {studentPayments.map((pay) => (
+                    <tr key={pay.id}>
+                      <td><span className="font-bold text-xs">{pay.paymentReference}</span></td>
+                      <td><span className="font-mono text-xs" style={{ color: 'var(--color-primary)' }}>{pay.providerTransactionId}</span></td>
+                      <td className="text-xs">{pay.paidAt ? new Date(pay.paidAt).toLocaleString() : pay.date}</td>
+                      <td>
+                        <span className="badge badge-info">{pay.provider || pay.method}</span>
+                      </td>
+                      <td>
+                        <span className="badge badge-success">{pay.reconciliationStatus || 'MATCHED'}</span>
+                      </td>
+                      <td className="text-right" style={{ fontWeight: '700', color: 'var(--color-success)' }}>
+                        +KES {pay.amount.toLocaleString()}
+                      </td>
+                      <td className="text-center">
+                        <button className="btn btn-secondary btn-sm" onClick={() => setSelectedReceipt(pay)}>
+                          <FileText size={14} /> Receipt
+                        </button>
                       </td>
                     </tr>
                   ))}
-                  {student.payments.length === 0 && (
+                  {studentPayments.length === 0 && (
                     <tr>
-                      <td colSpan="4" className="text-center text-muted">No transactions recorded. Outstanding dues should be paid at the main billing office.</td>
+                      <td colSpan="7" className="text-center text-muted">No transactions recorded in the financial ledger.</td>
                     </tr>
                   )}
                 </tbody>
@@ -462,6 +602,181 @@ export default function StudentDashboard({ overrideStudentId }) {
             </form>
           </div>
         </section>
+      )}
+
+      {/* M-PESA STK PUSH PAYMENT MODAL */}
+      {showPaymentModal && (
+        <div className="modal-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(4px)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div className="glass-card" style={{ width: '100%', maxWidth: '520px', background: '#111827', border: '1px solid rgba(255, 255, 255, 0.2)', padding: '24px', borderRadius: '16px', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)' }}>
+            <div className="flex-between mb-md">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Smartphone color="var(--color-success)" size={24} />
+                <h3 style={{ margin: 0, fontSize: '1.25rem' }}>M-Pesa STK Push Gateway</h3>
+              </div>
+              <button className="btn btn-secondary btn-sm" onClick={() => setShowPaymentModal(false)}>
+                <X size={18} />
+              </button>
+            </div>
+
+            {stkStatus === 'IDLE' && (
+              <form onSubmit={handleInitiatePayment}>
+                <div style={{ background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.2)', borderRadius: '8px', padding: '12px', marginBottom: '16px' }}>
+                  <div className="flex-between text-xs text-muted">
+                    <span>Student Name:</span>
+                    <span className="font-bold text-white">{student.name} ({student.id})</span>
+                  </div>
+                  <div className="flex-between text-xs text-muted mt-xs">
+                    <span>Invoice Ref:</span>
+                    <span className="font-mono text-white">{studentInvoice ? studentInvoice.invoiceNumber : 'INV-2026-001'}</span>
+                  </div>
+                  <div className="flex-between text-xs text-muted mt-xs">
+                    <span>Total Outstanding:</span>
+                    <span className="font-bold text-error">KES {outstandingBalance.toLocaleString()}</span>
+                  </div>
+                </div>
+
+                <div className="form-group mb-md">
+                  <label htmlFor="pay-method-select">Payment Method</label>
+                  <select 
+                    id="pay-method-select" 
+                    className="form-control" 
+                    value={selectedMethod}
+                    onChange={(e) => setSelectedMethod(e.target.value)}
+                  >
+                    <option value="mpesa_express">M-Pesa Express (STK Push)</option>
+                    <option value="mpesa_paybill">M-Pesa Paybill (C2B Validation)</option>
+                    <option value="equity_bank">Equity Bank Direct Transfer</option>
+                    <option value="card">Visa / Mastercard</option>
+                  </select>
+                </div>
+
+                <div className="form-group mb-md">
+                  <label htmlFor="pay-phone">M-Pesa Registered Mobile Number</label>
+                  <input 
+                    type="text" 
+                    id="pay-phone" 
+                    className="form-control"
+                    placeholder="254712345678" 
+                    required
+                    value={paymentPhone}
+                    onChange={(e) => setPaymentPhone(e.target.value)}
+                  />
+                  <span className="text-xs text-muted">Format: 254XXXXXXXXX (Safaricom M-Pesa line)</span>
+                </div>
+
+                <div className="form-group mb-md">
+                  <label htmlFor="pay-amount">Payment Amount (KES)</label>
+                  <input 
+                    type="number" 
+                    id="pay-amount" 
+                    className="form-control"
+                    placeholder={`Default: KES ${outstandingBalance}`} 
+                    value={paymentAmount}
+                    onChange={(e) => setPaymentAmount(e.target.value)}
+                    max={outstandingBalance}
+                    min={100}
+                  />
+                  <span className="text-xs text-muted">Leave empty to pay full balance of KES {outstandingBalance.toLocaleString()}</span>
+                </div>
+
+                <button type="submit" className="btn btn-primary" style={{ width: '100%', padding: '14px', fontWeight: 'bold' }}>
+                  <ShieldCheck size={18} /> Initiate M-Pesa STK Push Prompt
+                </button>
+              </form>
+            )}
+
+            {stkStatus === 'PROMPTED' && (
+              <div className="text-center p-lg">
+                <Loader2 className="animate-spin" size={48} color="var(--color-primary)" style={{ margin: '0 auto 16px' }} />
+                <h4>Check Phone for M-Pesa STK Prompt</h4>
+                <p className="text-sm text-muted mt-sm">
+                  An M-Pesa prompt has been pushed to <span className="font-bold text-white">{paymentPhone}</span> for <span className="font-bold text-success">KES {(Number(paymentAmount) || outstandingBalance).toLocaleString()}</span>.
+                </p>
+                <p className="text-xs text-muted mt-md">Please enter your 4-digit M-Pesa PIN on your phone screen to complete transaction...</p>
+              </div>
+            )}
+
+            {stkStatus === 'PROCESSING' && (
+              <div className="text-center p-lg">
+                <Loader2 className="animate-spin" size={48} color="var(--color-success)" style={{ margin: '0 auto 16px' }} />
+                <h4>Verifying Signature & Idempotency...</h4>
+                <p className="text-sm text-muted mt-sm">Processing server-to-server webhook callback from Safaricom Daraja API...</p>
+              </div>
+            )}
+
+            {stkStatus === 'SUCCESS' && (
+              <div className="text-center p-lg">
+                <CheckCircle2 size={56} color="var(--color-success)" style={{ margin: '0 auto 16px' }} />
+                <h4 style={{ color: 'var(--color-success)' }}>Payment Confirmed & Verified!</h4>
+                <p className="text-sm text-muted mt-sm">Invoice updated, ledger entry logged, and outbox receipt event published.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* OFFICIAL RECEIPT VIEW MODAL */}
+      {selectedReceipt && (
+        <div className="modal-overlay" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(6px)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div className="glass-card" style={{ width: '100%', maxWidth: '600px', background: '#ffffff', color: '#111827', padding: '32px', borderRadius: '12px', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)' }}>
+            <div className="flex-between mb-md" style={{ borderBottom: '2px solid #e5e7eb', paddingBottom: '16px' }}>
+              <div>
+                <h2 style={{ margin: 0, color: '#1e3a8a', fontSize: '1.5rem' }}>SPRING OASIS ACADEMY</h2>
+                <span className="text-xs" style={{ color: '#6b7280' }}>Official Financial Fee Payment Receipt</span>
+              </div>
+              <button className="btn btn-secondary btn-sm" onClick={() => setSelectedReceipt(null)} style={{ background: '#f3f4f6', color: '#111827' }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', fontSize: '0.875rem', marginBottom: '24px' }}>
+              <div>
+                <span style={{ color: '#6b7280', display: 'block' }}>Student Name:</span>
+                <strong>{student.name}</strong>
+              </div>
+              <div>
+                <span style={{ color: '#6b7280', display: 'block' }}>Admission No:</span>
+                <strong>{student.id}</strong>
+              </div>
+              <div>
+                <span style={{ color: '#6b7280', display: 'block' }}>Payment Reference:</span>
+                <strong style={{ fontFamily: 'monospace' }}>{selectedReceipt.paymentReference}</strong>
+              </div>
+              <div>
+                <span style={{ color: '#6b7280', display: 'block' }}>M-Pesa Receipt Code:</span>
+                <strong style={{ fontFamily: 'monospace', color: '#059669' }}>{selectedReceipt.providerTransactionId}</strong>
+              </div>
+              <div>
+                <span style={{ color: '#6b7280', display: 'block' }}>Payment Date & Time:</span>
+                <strong>{selectedReceipt.paidAt ? new Date(selectedReceipt.paidAt).toLocaleString() : selectedReceipt.date}</strong>
+              </div>
+              <div>
+                <span style={{ color: '#6b7280', display: 'block' }}>Payment Provider:</span>
+                <strong>{selectedReceipt.provider || selectedReceipt.method}</strong>
+              </div>
+            </div>
+
+            <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px', marginBottom: '24px' }}>
+              <div className="flex-between" style={{ fontSize: '1.1rem', fontWeight: 'bold', color: '#059669' }}>
+                <span>AMOUNT PAID:</span>
+                <span>KES {selectedReceipt.amount.toLocaleString()}</span>
+              </div>
+              <div className="flex-between mt-xs text-xs" style={{ color: '#6b7280' }}>
+                <span>Reconciliation Audit Status:</span>
+                <span style={{ color: '#059669', fontWeight: 'bold' }}>VERIFIED & MATCHED</span>
+              </div>
+            </div>
+
+            <div className="flex-between" style={{ gap: '12px' }}>
+              <button className="btn btn-primary" onClick={() => window.print()} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                <Printer size={16} /> Print / Save PDF Receipt
+              </button>
+              <button className="btn btn-secondary" onClick={() => setSelectedReceipt(null)} style={{ background: '#e5e7eb', color: '#374151' }}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
