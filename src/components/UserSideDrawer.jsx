@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useSchool } from '../context/SchoolContext';
-import { X, User, KeyRound, Shield, Sun, Moon, LogOut, CheckCircle2, Lock, School, Sparkles, BookOpen } from 'lucide-react';
+import { X, KeyRound, Sun, Moon, LogOut, CheckCircle2, Lock, Sparkles } from 'lucide-react';
 
 export default function UserSideDrawer({ isOpen, onClose, currentUser, profile, toggleTheme, theme, logoutUser }) {
   const { resetUserPassword } = useSchool();

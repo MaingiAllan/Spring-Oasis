@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useSchool } from '../context/SchoolContext';
 import {
-  Users, DollarSign, Calendar, Compass, Plus,
+  Users, Calendar, Compass, Plus,
   CreditCard, Award, Eye, Settings, CheckCircle2,
   Edit, Trash2, BookOpen
 } from 'lucide-react';
@@ -14,11 +14,8 @@ import StudentDashboard from './StudentDashboard';
 export default function DirectorDashboard() {
   const {
     students,
-    invoices,
     payments,
-    reconciliationRuns,
     reconciliationDiscrepancies,
-    auditLogs,
     trips,
     closingDays,
     examScores,
@@ -88,7 +85,6 @@ export default function DirectorDashboard() {
   const [migrationSuccess, setMigrationSuccess] = useState(null);
   const [migrationError, setMigrationError] = useState(null);
   const [parsedData, setParsedData] = useState([]);
-  const [csvText, setCsvText] = useState('');
 
   const handleCsvUpload = (e) => {
     const file = e.target.files[0];
@@ -224,7 +220,6 @@ export default function DirectorDashboard() {
   // Calculate stats
   const totalFeesDue = students.reduce((acc, s) => acc + s.feesDue, 0);
   const totalFeesPaid = students.reduce((acc, s) => acc + s.feesPaid, 0);
-  const pendingFees = totalFeesDue - totalFeesPaid;
   const totalTrips = trips.length;
 
   // Get unique list of subjects from scores
@@ -370,15 +365,15 @@ export default function DirectorDashboard() {
       const studentGPA = calculateStudentGPA(student.id);
       let scoreCols = subjects.map(subject => {
         const scores = examScores.filter(s => s.studentId === student.id && s.subject === subject);
-        if (scores.length === 0) return '<td>Not Graded<\/td>';
-        return `<td>${scores.map(s => `<strong>${s.assessment || 'General'}</strong>: ${s.score}%`).join('<br/>')}<\/td>`;
+        if (scores.length === 0) return '<td>Not Graded</td>';
+        return `<td>${scores.map(s => `<strong>${s.assessment || 'General'}</strong>: ${s.score}%`).join('<br/>')}</td>`;
       }).join('');
       return `
         <tr>
-          <td><strong>${student.name}</strong><br/><small>ID: ${student.id}</small><\/td>
-          <td>${student.class}<\/td>
+          <td><strong>${student.name}</strong><br/><small>ID: ${student.id}</small></td>
+          <td>${student.class}</td>
           ${scoreCols}
-          <td><strong>${studentGPA === 'N/A' ? 'N/A' : `${studentGPA} GPA`}</strong><\/td>
+          <td><strong>${studentGPA === 'N/A' ? 'N/A' : `${studentGPA} GPA`}</strong></td>
         </tr>
       `;
     }).join('');
@@ -490,7 +485,7 @@ export default function DirectorDashboard() {
             window.print();
             setTimeout(function() { window.close(); }, 500);
           };
-        <\/script>
+        </script>
       </body>
       </html>
     `);

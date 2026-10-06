@@ -5,7 +5,7 @@ import { GraduationCap, Lock, User, Eye, EyeOff, ShieldAlert, KeyRound, CheckCir
 export default function Login() {
   const { loginUser, resetUserPassword } = useSchool();
   const [isStudent, setIsStudent] = useState(true); // toggle between student and staff login
-  const [schoolCode, setSchoolCode] = useState('SPRING_OASIS');
+  const [schoolCode] = useState('SPRING_OASIS');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
