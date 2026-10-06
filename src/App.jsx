@@ -9,6 +9,7 @@ import UserSideDrawer from './components/UserSideDrawer';
 import { BookOpen, Clock, Shield, Sun, Moon, GraduationCap, Menu, User, X } from 'lucide-react';
 
 import Login from './components/Login';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 
 function AppContent() {
   const { currentUser, logoutUser } = useSchool();
@@ -246,6 +247,7 @@ export default function App() {
   return (
     <SchoolProvider>
       <AppContent />
+      <SpeedInsights />
     </SchoolProvider>
   );
 }
